@@ -1,0 +1,599 @@
+STARTING A FASTAPI APP
+Run the command
+    uvicorn main:app --reload
+
+The command uvicorn main:app refers to:
+    main - the file main.py (the Python "module").
+    app - the object created inside of main.py with the line app = FastAPI().
+    --reload - make the server restart after code changes. Only use for development.
+
+To use uvicorn to run a nested FastAPI instance, you use dots to reference it/
+E.g:
+    uvicorn app.main:app --reload (we used dot notation to access the nested file main.py)
+
+
+SIMPLEST FastAPI APP
+
+from fastapi import FastAPI
+
+app = FastAPI()
+
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
+
+
+Path operations (CRUD)
+Use the decorator @app.operation_name ('app' is the name of your FastAPI instance)
+E.g
+@app.post
+@app.get
+@app.put
+@app.delete
+
+Path operations are evaluated in the order in which they were specified in the code.
+
+@app.get("/profile/{user_name}")
+def get_profile(user_name: str):
+    return {
+        "user": user_name
+    }
+
+@app.get('/profile/me')
+def get_current_profile():
+    return {
+        "user": "current user"
+    }
+
+The second path operation for /profile/me will never be evaluated even if the get request is /profile/me. This is because the
+path coincides with the first one which will always be evaluated in place of the second. To fix this, put the second one first.
+
+
+
+*** PATH PARAMETERS AND QUERY PARAMETERS ***
+** PATH PARAMETERS **
+
+This is the part of the resource string that comes after the host name but before the '?', after which there are query parameters.
+e.g
+foo.com/bar/chaz/lar/8?fname=john&lname=doe
+/bar/chaz/lar are path parameters
+fname and lname are query parameters
+
+Defining path parameters
+@app.get("/profile/{uid}") # put the path name in brackets and access it using the same name in your function
+def get_profile(uid: int): # providing type hints is useful for parsing and validation
+    return {
+        "user": uid
+}
+
+Path parameters must be provided in the query, even if they are null (None). This is because the URL has to match
+the pattern that was defined. If the path parameter is not passed in, the URL could possibly match another schema and
+confusion can arise.
+A path parameter is always required as it has to be part of the path.
+Query parameters don't have to be passed into the URL.
+
+
+RESTRICTING A PATH PARAMETER TO PREDEFINED VALUES: Use Enum
+E.g
+class Gender(str, Enum): # multiple-inherit from both str and Enum. inheriting from str ensures that the query will be
+    MALE = 'male'        # parsed and displayed correctly in responses back to the client
+    FEMALE = 'female'
+    NA = None
+
+@quickie.get("/pets/gender/{gender}")
+async def get_by_gender(gender: Union[Gender, None] = None):
+
+    pets_by_gender = (pet for pet in pets if pet.gender == gender)
+    return {
+        f"{gender}_pets": pets_by_gender  # without inheriting from str, the response will be e.g Gender.MALE_pets instead of male_pets
+    }
+
+
+Path Parameters Containing Paths
+
+@app.get("/files/{file_path:path}")
+async def read_file(file_path: str):
+    return {"file_path": file_path}
+
+In this case, the name of the parameter is file_path, and the last part, :path, tells it that the parameter should match any path.
+
+
+
+** QUERY PARAMETERS **
+When you declare other function parameters that are not part of the path parameters, they are AUTOMATICALLY INTERPRETED as "query" parameters.
+E.g:
+
+@app.get("/items/{item_id}")
+async def read_item(item_id: str, q: str | None = None):
+    if q:
+        return {"item_id": item_id, "q": q}
+    return {"item_id": item_id}
+FastAPI is smart enough to notice that the path parameter item_id is a path parameter and q is not, so, it's a query parameter.
+
+You can declare multiple path parameters and query parameters at the same time, FastAPI knows which is which. And you don't have to
+declare them in any specific order. They will be detected by name.
+
+Have in mind that the most important part to make a parameter optional is the part:
+    = None
+or the:
+    = Query(default=None)
+as it will use that None as the default value, and that way make the parameter not required.
+
+The rest is just type hints, but it is not what tells FastAPI that this parameter is not required. Having a default value of any type,
+including None, makes the parameter optional (not required). When you're writing code with type hints, assume it doesn't have type hints and
+see if the way you wrote it would actually work. Type hints are just annotations, they don't have much effect on execution.
+
+To make a parameter required, you can:
+    - simply just not provide a default value
+    - use ellipsis (...). It is used by Pydantic and FastAPI to EXPLICITLY declare that a value is required
+      E.g def filter_profile(user_name: Annotated[str, Query(min_length=4)] = ...)
+    - Use Required from pydantic.
+        from pydantic import Required
+        def filter_profile(user_name: Annotated[str, Query(min_length=4)] = Required)
+
+
+
+REQUEST BODY
+When you need to send data from a client to your API, you send it as a request body. Clients don't need to send request bodies all the time.
+Use Pydantic models to declare a request body.
+
+To send data, you should use one of: POST (the more common), PUT, DELETE or PATCH.
+Sending a body with a GET request is discouraged. Proxies in the middle might not support it.
+
+Inherit from pydantic's BaseModel
+
+from pydantic import BaseModel
+
+class Pet(BaseModel):
+    animal: str
+    name: str
+    gender: Union[Gender, None] = None
+
+You can declare path, request and body parameters all at the same time.
+FastAPI will recognize the parameters in the function correctly as follows:
+    - If the parameter is also declared in the path, it will be used as a path parameter.
+    - If the parameter is of a singular type (like int, float, str, bool, etc) it will be interpreted as a query parameter (not defined in path).
+    - If the parameter is declared to be of the type of a Pydantic model, it will be interpreted as a request body.
+
+
+
+*** QUERY PARAMETERS AND STRING VALIDATIONS ***
+Annotated comes in handy (*remember?*)
+We use Annotated (from typing) and Query (from fastapi). Query, meaning we're working with query parameters (coming after ?)
+Annotated is used for providing metadata to our fastapi schemas, for uses such as extra data validation like this scenario where
+we're adding extra validations for input data.
+
+from typing import Annotated
+from fastapi import Query
+
+@app.get("/profile/filter/by")
+def filter_profile(
+        user_name: Annotated[str | None, Query(min_length=5)] = None, # the first parameter of Annotated is the type hint(s) of the argument
+        age: Annotated[int | None, Query(gt=0, lt=100)] = None):      # the other parameters are metadata
+    return {
+        "matches": [
+            {
+                "user_name": user_name,
+                "age": age
+            }
+        ]
+    }
+
+In the arguments of the Query (that we add to the Annotated as a parameter), we specify in the validations or specifications of how we want our Query
+parameter to look like, and other additional info.
+Notice that the default value is still None, so the parameter is still optional.
+
+But now, having Query(min_length=5) inside of Annotated, we are telling FastAPI that we want it to extract this value from the query parameters
+(this would have been the default anyway 🤷) and that we want to have additional validation for this value (that's why we do this,
+TO GET THE ADDITIONAL VALIDATION ;).
+By specifying Annotated[int | None, Query(gt=0, lt=100)], we want our data value to be an integer that is greater than 0 and less than 100.
+FastAPI will do these validations and return errors if data values that don't meet the requirements are received.
+
+We can put in as many validations as we want inside the Query as arguments.
+
+
+QUERY PARAMETER LIST
+We want to get a list as one of our query parameters. Use Annotated, with list as type hint, and Query. Don't use vanilla list without using Query,
+because FastAPI will interpret it as a request body (which will not work well if it is a GET request for example), and probably your code won't work as
+expected because you were expecting a query parameter and instead you're dealing with a request body.
+
+@quickie.get("/multiple/pets")
+# async def get_multiple_by_name(arg: list[str] | None = None): # don't to this
+async def get_multiple_by_name(arg: Annotated[list[str] | None, Query()] = None): # do this. you can provide a default list apart from None
+    if arg is not None:
+        return (pet for pet in pets if pet.name in arg)
+
+    return []
+
+If you want a list of items (e.g strings) but you don't want duplicates, you can use set[data_type] as the type hint.
+So instead of above you would do:
+
+@quickie.get("/multiple/pets")
+async def get_multiple_by_name(arg: Annotated[set[str] | None, Query()] = None): # do this. you can provide a default list apart from None
+    if arg is not None:
+        return (pet for pet in pets if pet.name in arg)
+
+    return []
+Duplicate data will be converted to a set of unique items.
+
+
+MORE QUERY METADATA
+async def get_multiple_by_name(
+        name_list: Annotated[
+            list[str] | None,
+            Query(
+                alias="user-name", # this metadata will be the alias name of the query parameter used in the URL, but in our code we're referring to it using a different variable name
+                title="Multiple search list", # give a title that will be used in the docs
+                description="Searching for multiple pets using multiple names", # and a description too. will be used by OpenAPI docs
+                deprecated=True, # mark as deprecated so that it shows clearly in the docs. clients are still using it, but in your books it is deprecated and will probably be phased out sometime
+                include_in_schema=True # True to include schema in the OpenAPI docs, False to exclude
+            )
+        ] = None):
+
+*Tip*
+Preferably, always use Annotated when tweaking your parameters
+E.g
+Instead of this
+    @app.get("/items/{item_id}")
+    async def read_items(q: str, item_id: int = Path(title="The ID of the item to get")):
+Use this:
+    @app.get("/items/{item_id}")
+    async def read_items(q: str, item_id: Annotated[int, Path(title="The ID of the item to get")]):
+
+
+*** PATH PARAMETERS AND VALIDATIONS ***
+Path parameters are the part of the URL that come before after the host name and before the query (?) parameters.
+Validations and metadata for path parameters are done the same as above for query parameters, only that we use the Path function and not Query
+
+Query, Path, and other classes are subclasses of a common Param class. ALL of them SHARE THE SAME PARAMETERS for
+additional validation and metadata you have seen.
+
+Example path metadata:
+    @app.get('/users/age/{age}')
+    def get_users_by_age(age: Annotated[int, Path(description="Get users whose age is the one specified", ge=6, le=100)]):
+age will be required to be an integer that is greater than 6 and less than or equal to 100. An error will be returned as response if this requirement
+is not met. A description is also provided as metadata.
+
+
+
+*** BODY ***
+MULTIPLE BODY PARAMETERS
+Just declare multiple parameters as pydantic models inside your endpoint schema (function) and FastAPI will expect a nested JSON object with
+keys as variable (parameter) names and values as pydantic models which are themselves JSON objects.
+
+E.g
+class Item(BaseModel):
+
+class User(BaseModel):
+
+
+@app.put("/items/{item_id}")
+async def update_item(item_id: int, item: Item, user: User):
+    results = {"item_id": item_id, "item": item, "user": user}
+    return results
+
+In this case, FastAPI will notice that there are more than one body parameters in the function (two parameters that are Pydantic models).
+So, it will then use the parameter names (or aliases, if any) as keys (field names) in the body, and expect a nested body like:
+
+{
+    "item": {...},
+    "user": {...}
+}
+You can have more deeply nested models. To nest, declare pydantic models as attributes of your pydantic models. Those pydantic models that are children
+can have more children and you will have a nested situation. The client will have to send a JSON object that matches the schema tho'.
+
+
+REQUIRING A NESTED JSON OBJECT EVEN FOR A SINGLE KEY-VALUE BODY PARAMETER
+Use Body from FastAPI and specify metadata 'embed' as True
+
+@quickie.post('/pets')
+# async def add_pet(pet: Pet): # instead of this...
+async def add_pet(pet: Annotated[Pet, Body(embed=True)]): # do this, set 'embed' in Body to be True
+    pets.append(pet)
+
+First one will require a json object like:
+{
+    "animal": "pony",
+    "name": "tail",
+    "gender": "female"
+}
+
+Second one will require such a nested json:
+{
+  "pet": {
+    "animal": "pony",
+    "name": "tail",
+    "gender": "female"
+  }
+}
+
+DECLARING A SINGLE PARAMETER AS A BODY ITEM
+By default, single value parameters (primitives like str, int, float) are interpreted as query parameters. But sometimes, you usually want it
+to be a request body instead.
+In such a case, use Annotated, and Body from FastAPI as metadata like so:
+
+    @app.post("/foobar")
+    def foobar(choo: Annotated[str, Body()]):
+Now choo will be the request body instead as query parameter.
+
+Body also has all the same extra validation and metadata parameters as Query, Path and others.
+
+
+VALIDATIONS FOR BODY FIELDS (Attributes of your pydantic models)
+Use Field from pydantic
+The same way you can declare additional validation and metadata in path operation function parameters with Query, Path and Body,
+you can declare validation and metadata inside of Pydantic models using Pydantic's Field.
+Note that Field is imported directly from pydantic, not from fastapi as are all the rest (Query, Path, Body, etc). Import is: from pydantic import Field
+
+Import Field and use it with your model attributes.
+E.g:
+from pydantic import BaseModel, Field
+
+class Price(BaseModel):
+    price: float = Field(gt=100, description="We don't sell cars less than 100 bucks") # use this for metadata and validations inside your models
+    currency: str
+price will be a float that is greater than 100
+
+class CarBuyerProfile(BaseModel):
+    gender: Gender
+    age: int = Field(le=30, description="Our buyers are not old")
+age will be an integer less than or equal to 30
+
+
+SPECIAL TYPES FOR VALIDATION
+You can use special data types from pydantic to give you extra validation for your data.
+E.g you might want a url or email address from the client and you want to make sure the data is correct and properly formatted
+
+from pydantic import HttpUrl, EmailStr
+
+class Foo(BaseModel):
+    bar: HttpUrl # this will validate a url string and return an error if it is not
+    baz: EmailStr # and this will be an email string. If it doesn't exist, add it using pip: pip install pydantic['email']
+
+
+LIST IN TOP LEVEL
+If the top level value of the JSON body you expect is a JSON array (a Python list), you can declare the type in the parameter of the function to be list[<type>],
+the same as in Pydantic models:
+
+@app.post("/images/multiple/")
+async def create_multiple_images(images: list[Image]):
+    return images
+
+
+ALTERNATIVE TO PYDANTIC MODELS
+If you don't want to work with pydantic models for some reason, e.g if you're receiving keys that you don't already know, you can use dict
+instead of pydantic models.
+E.g:
+@app.post("/foobar")
+def foobar(choo: dict[str, int]):
+    return choo
+
+
+GETTING COOKIES FROM THE REQUEST
+Use Annotated and Cookie
+
+from fastapi import Cookie
+
+@app.get("/items/")
+async def read_items(ads_id: Annotated[str | None, Cookie()] = None): # this will read the cookie using the key 'ads_id' from the request
+    return {"ads_id": ads_id}
+
+
+
+GETTING HEADERS FROM THE REQUEST (Super-Easy)
+Use Annotated and Header
+
+Headers usually have hyphens instead of underscore and FastAPI automatically does the conversion from hyphen to python-legal underscores for us.
+
+@app.get('/headers')
+def get_headers(
+        user_agent: Annotated[str | None, Header()] = None,     # looks for header with key 'user_agent' in the request headers
+        authority: Annotated[str | None, Header()] = None,
+        path: Annotated[str | None, Header()] = None,
+        scheme: Annotated[str | None, Header()] = None,
+        accept: Annotated[Any | None, Header()] = None,
+        accept_encoding: Annotated[Any | None, Header()] = None,
+        cookie: Annotated[Any | None, Header()] = None
+    ):
+    return {
+        "agent": user_agent,
+        "authority": authority,
+        "path": path,
+        "scheme": scheme,
+        "accept": accept,
+        "encoding": accept_encoding,
+        "cookie": cookie
+    }
+
+
+
+RESPONSE MODEL
+There are some cases where you need or want to return some data that is not exactly what the type declares. For example, you could want to return a
+dictionary or a database object, but declare it as a Pydantic model. This way the Pydantic model would do all the data documentation, validation, etc.
+for the object that you returned (e.g. a dictionary or database object).
+If you added the return type annotation, tools and editors would complain with a (correct) error telling you that your function is returning a type
+(e.g. a dict) that is different from what you declared (e.g. a Pydantic model).
+
+In those cases, you can use the path operation decorator parameter 'response_model' instead of the return type. You can use response_model in any path operation (get, put, post, delete etc)
+
+@app.get("/items/", response_model=list[Item])
+async def read_items() -> Any:
+    return [    # now we're returning a list of dictionaries instead of a list of --Item-- objects, but we should be good since we set the
+                # response_model to be list[Item] and so any dicts that match the schema for Item are legal
+        {"name": "Portal Gun", "price": 42.0},
+        {"name": "Plumbus", "price": 32.0},
+    ]
+
+
+*** response_model with Union of two types ***
+You can declare a response to be the Union of two types, that means, that the response would be any of the two.
+Because we are passing it as a value to an argument instead of putting it in a type annotation, we have to use Union even in Python 3.10+
+If we use this method (example):
+    response_model=PlaneItem | CarItem
+we would get an error, because Python would try to perform an invalid operation between PlaneItem and CarItem instead of interpreting that as a type annotation..
+
+Correct way to do it:
+from typing import Union
+
+class BaseItem(BaseModel):
+    description: str
+    type: str
+
+class CarItem(BaseItem):
+    type = "car"
+
+class PlaneItem(BaseItem):
+    type = "plane"
+    size: int
+
+items = {
+    "item1": {"description": "All my friends drive a low rider", "type": "car"},
+    "item2": {
+        "description": "Music is my aeroplane, it's my aeroplane",
+        "type": "plane",
+        "size": 5,
+    },
+}
+
+@app.get("/items/{item_id}", response_model=Union[PlaneItem, CarItem])  # not response_model=PlaneItem | CarItem
+async def read_item(item_id: str):
+    return items[item_id]
+
+
+
+FILTERING DATA USING response_model
+class BaseUser(BaseModel):
+    id: int | None = None
+    username: str
+    email: str
+    full_name: str | None = None
+    password: str
+
+Scenario, you are adding in a new user to your database but in the response, you only want to return the new user's created account id.
+Use response_model_include in the path spec.
+
+@app.post("/user/", response_model_include={'id'}) # response_model_include is a set of the keys in the pydantic model that you want included in the response
+async def create_user(user: BaseUser) -> BaseUser:
+    user.id = time.time()
+    return user
+
+You can also exclude certain info using response_model_exclude
+@app.post("/user/", response_model_exclude={'password', 'email'}) # exclude the password from the response. response_model_exclude is a set of keys
+async def create_user(user: BaseUser) -> BaseUser:
+    user.id = time.time()
+    return user
+
+
+
+DEALING WITH RESPONSES
+
+When you create a FastAPI path operation you can normally return any data from it: a dict, a list, a Pydantic model, a database model, etc.
+By default, FastAPI would automatically convert that return value to JSON using the jsonable_encoder explained in JSON Compatible Encoder.
+Then, behind the scenes, it would put that JSON-compatible data (e.g. a dict) inside of a JSONResponse that would be used to send the response to the client.
+But, you can return a JSONResponse (a subclass of Response) directly from your path operations.
+It might be useful, for example, to return custom headers or cookies with the response, or do further customization to the response other than just returning data.
+You might also want to do something like redirect the user to another url and so you'll need the more niche RedirectResponse
+
+        from fastapi import FastAPI, Response
+        from fastapi.responses import JSONResponse, RedirectResponse
+
+        @app.get("/portal")
+        async def get_portal(teleport: bool = False) -> Response:
+            if teleport:
+                return RedirectResponse(url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            return JSONResponse(content={"message": "Here's your interdimensional portal."})
+
+
+        If you're returning a pydantic model, you can also encode your model to json using jsonable_encoder from fastapi.encoders
+
+        from fastapi.encoders import jsonable_encoder
+
+        @app.get('/person', response_model=Person)
+        def get_person(gender: Gender | None = None):
+            p = Person(dob=date.today(), gender=gender)
+            return JSONResponse(headers = {...headers here...}, content=jsonable_encoder(p), status_code=200)
+
+You might also want to use a different content type in your response other than json, e.g XML. Use the 'media_type' parameter in your response
+
+        @app.get("/legacy/")
+        def get_legacy_data():
+            data = """<?xml version="1.0"?>
+            <shampoo>
+            <Header>
+                Apply shampoo here.
+            </Header>
+            <Body>
+                You'll have to use soap here.
+            </Body>
+            </shampoo>
+            """
+            return Response(content=data, media_type="application/xml")
+
+
+
+DEFINING STATUS CODES FOR YOUR RESPONSES
+You can either do it at the decorator level or in the function level when you're returning your response
+
+1. Decorator level
+    from fastapi import status
+
+    @app.get("/foo", status_code=status.HTTP_201_CREATED)
+    async def foo():
+        return "created"
+
+    Or you can use the status code integer without importing from status
+    @app.get("/foo", status_code=201)
+    async def foo():
+        return "created"
+
+2. Function level (returning response)
+    from fastapi import Response
+
+    @app.get("/foo")
+    async def foo():
+        return Response(content="created", status_code=201, media_type='text')
+
+    Alternative to above:
+    @app.get("/foo")
+    async def foo(response: Response):
+        response.status_code = 201 # in this case you don't have to return the response, just set the status code and leave it
+        return "created"
+
+
+
+THROWING AN ERROR
+Scenarios: invalid request, data not found, insufficient security clearance etc
+Workaround: raise HTTPException (from fastapi)
+
+from fastapi import HTTPException
+
+@app.get("/pho0pho")
+async def not_found():
+    raise HTTPException(
+        status_code=404 # status code can be anything depending on the kind of error you're throwing,
+        detail="not existing bud"
+        headers={}      # any headers you want to add to the error. headers is a dictionary
+    )
+
+
+PATH OPERATION DOCSTRING
+If you provide a docstring in any of your path operation functions, FastAPI will use that as a description in the OpenAPI documentations.
+
+
+JSON COMPATIBLE ENCODER
+There are some cases where you might need to convert a data type (like a Pydantic model) to something compatible with JSON (like a dict, list, etc).
+For example, if you need to store it in a database.
+For that, FastAPI provides a jsonable_encoder() function.
+
+from fastapi.encoders import jsonable_encoder
+import json
+
+@app.post('/person')
+def add_person(person: Person): # Person is a pydantic model
+    json_encodable_data = jsonable_encoder(person)
+    # Now you can convert it to a json string using json.dumps
+    print(json.dumps(json_encodable_data))
+    return person
+
+

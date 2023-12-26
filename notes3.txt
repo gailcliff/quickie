@@ -1,0 +1,283 @@
+
+*** DEPENDENCIES ***
+
+    DEPENDENCY INJECTION
+"Dependency Injection" means, in programming, that there is a way for your code (in this case, your path operation functions)
+to declare things that it requires to work and use: "dependencies".
+And then, that system (in this case FastAPI) will take care of doing whatever is needed to provide your code with those needed dependencies ("inject" the dependencies).
+
+This is very useful when you need to:
+
+- Have shared logic (the same code logic again and again).
+- Share database connections.
+- Enforce security, authentication, role requirements, etc.
+
+And many other things...while minimizing code repetition
+
+Depends (from fastapi) is the center of gravity of the dependency injection system
+    from fastapi import Depends
+
+Depends is a function that takes in a callable as the main parameter (this is what you'll inject) - it takes in another parameter too(use_cache).
+
+The KEY FACTOR is that a dependency should be a "callable".
+
+    A "callable" in Python is anything that Python can "call" like a function.
+
+    So, if you have an object something (that might not be a function) and you can "call" it (execute it) like:
+
+    something()
+    or
+    something(some_argument, some_keyword_argument="foo")
+
+    then it is a "callable".
+
+A python function, or class, etc are all callables.
+
+Now that callable will execute some code for you and provide it back so that you can use it.
+Using this dependency injection model, you can share code and reduce duplication since you don't have to define and implement everything
+inside your path operation functions.
+
+Example:
+    from fastapi import FastAPI, Depends
+
+    def multiples(number: int = ..., upper_bound: int | None = None) -> list:   # this is the callable that we will inject
+        return [number * i for i in range(1, upper_bound + 1 if upper_bound else 21)]
+
+
+    app = FastAPI()
+
+
+    @app.get('/{number}')
+    def get_multiples(muls: Annotated[list, Depends(multiples)]): # inject the callable into Depends without the parentheses ()
+
+        return {
+            "multiples": muls   # it executes the code for us and returns for us the result
+        }
+
+In this case, the callable is just a function that can take all the same parameters that a path operation function can take.
+Notice, the data type specified in the path operation function parameters (inside Annotated) is not actually any of the data types the path operation
+actually expects to receive from the client. It has nothing to do without the data from the client, but it has everything to do with
+the data we expect to be returned from the execution of the dependency. In this case, the dependency 'multiples' will return a list,
+and so we pass in 'list' as the type to the Annotated.
+
+
+Although you use Depends in the parameters of your function the same way you use Body, Query, etc, Depends works a bit differently.
+You only give Depends a single parameter.
+This parameter must be something like a function.
+You don't call it directly (don't add the parenthesis at the end), you just pass it as a parameter to Depends().
+Other "things", apart from functions (e.g classes), can be used as dependencies.
+
+Whenever a new request arrives, FastAPI will take care of:
+    - Calling your dependency ("dependable") function with the correct parameters.
+    - Get the result from your function.
+    - Assign that result to the parameter in your path operation function.
+
+To get rid of duplication in the above example, if we're gonna use the dependency in multiple places, we do this:
+
+    Multiplier = Annotated[list, Depends(multiples)]  # give the dependency an alias
+    # This is just standard Python, it's called a "type alias",
+
+    app = FastAPI()
+
+    @app.get('/{number}')
+    def get_multiples(muls: Multiplier):    # now use the alias so that you don't have to rewrite the whole Annotated[...] everywhere you use the dependency
+
+        return {
+            "multiples": muls
+        }
+
+
+    @app.get('/investment_returns/{investor}')
+    async def invest_returns(investor: str, returns: Multiplier):   # now use the alias so that you don't have to rewrite the whole Annotated[...] everywhere you use the dependency
+        return {
+            "investor": investor,
+            "investment_returns": returns
+        }
+
+All these dependencies, while declaring their requirements, also add parameters, validations, etc. to your path operations.
+
+FastAPI will take care of adding it all to the OpenAPI schema, so that it is shown in the interactive documentation systems.
+Other common terms for the same idea of "dependency injection" are:
+    - resources
+    - providers (like Provider in flutter)
+    - services
+    - injectables
+    - components
+
+
+CLASSES AS DEPENDENCIES
+Since classes are callable, you can use them instead of functions when appropriate to achieve the same effect. Classes, though, give you extra benefits like better editor support
+and code completion. Also, it would be more elegant to organize your code in models (classes) from which you can reference attributes in an OOP way.
+
+class Multiplier:
+
+    num: int
+    multiples: list[int]
+
+    def __init__(self, num: int | None = None, topline: int = 20):
+        self.num = num if num else random.randrange(1, 10000)
+        self.multiples = [self.num * i for i in range(1, topline + 1)]
+
+
+@app.get('/multiples/{number}')
+def get_multiples(muls: Annotated[Multiplier, Depends(Multiplier)]):
+
+    return {
+        "multiples": muls.multiples
+    }
+
+A more shorthand and less code-repetitive way of use Annotated and Depends so that we don't have to repeat the class name twice is just to omit
+the dependency from Depends when calling it. Just call it with empty parentheses like in the below example. It will still achieve the same effect
+editor- and computation-wise as if you had explicitly passed the dependency in. The benefit you get is elegance and less duplication.
+
+@app.get('/investment_returns/{investor}')
+async def invest_returns(investor: str, multiplier: Annotated[Multiplier, Depends()]):
+    return {
+        "investor": investor,
+        "investment_returns": multiplier
+    }
+
+
+
+DEPENDENCIES IN PATH OPERATION DECORATORS
+
+In some cases you don't really need the return value of a dependency inside your path operation function. Or the dependency doesn't return a value.
+But you still need it to be executed/solved.
+For those cases, instead of declaring a path operation function parameter with Depends, you can add a list of dependencies
+to the path operation decorator. Each path operation decorator receives an optional argument called 'dependencies'
+These dependencies will be executed/solved the same way normal dependencies. But their value (if they return any) won't be
+passed to your path operation function.
+
+Example: verifying a request using a security key in the headers
+
+    from fastapi import Depends
+
+    async def verify_security_key(x_secret_key: Annotated[str | None, Header()] = None):    # check the headers for a valid security key
+        if x_secret_key is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No password provided')
+        if x_secret_key != 'zdash9na9na':
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Invalid password')
+
+
+    @app.get('/secret_resource', dependencies=[Depends(verify_security_key)])   # pass the dependency to the list 'dependencies' in the decorator
+    async def fetch_secret_resource():
+        return "here's the secret. shhh don't tell anyone"
+
+
+In the above example, the code inside the function only runs after the dependency has finished executing. If the dependency completes
+and the password doesn't exist or is invalid, a HttpException is raised and the code inside the path operation function is not executed. It only
+executes and returns the secret resource if the password is valid.
+
+The code in the dependency is always ran before the actual function gets executed.
+
+
+GLOBAL DEPENDENCIES
+You can supply global dependencies that will be applied to every request by passing them in to your FastAPI instance when you initialize it.
+
+In for example, the secret key scenario described above, if you want every request (and so every path operation) to have a valid secret key,
+passing in the verify_security_key dependency to our FastAPI instance will ensure every request passes through the security key verification
+before any of the path operation functions is executed. This is a very efficient and elegant way of ensuring consistency and reducing code duplication
+in our codebase.
+Doing this:
+    async def verify_security_key(x_secret_key: Annotated[str | None, Header()] = None):
+        if x_secret_key is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No password provided')
+        if x_secret_key != 'zdash9na9na':
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Invalid password')
+
+    app = FastAPI(dependencies=[Depends(verify_security_key)])  # add the dependency in the 'dependencies' list of our FastAPI instance
+
+will ensure that all requests coming from the clients have the 'X-Secret-Key' header and that it is a valid key. All requests withouth
+a valid key in the header will fail with a 403 error.
+
+
+CROSS-ORIGIN RESOURCE SHARING (CORS)
+An origin is the combination of protocol (http, https), domain (myapp.com, localhost, localhost.tiangolo.com), and port (80, 443, 8080).
+
+So, all these are different origins:
+    http://localhost
+    https://localhost
+    http://localhost:8080
+Even if they are all in localhost, they use different protocols or ports, so, they are different "origins".
+
+The backend has to have a list of 'allowed origins' from which clients use to reference the backend while sending requests.
+If a client uses an origin that isn't allowed, the request will fail.
+
+To specify allowed origins in FastAPI, you use the CORSMiddleware middleware and add it to your FastAPI instance.
+
+from fastapi.middleware.cors import CORSMiddleware
+
+allowed_origins = [
+    'http://localhost:7000'     # you can use '*' if you want all origins to be allowed
+]
+
+app = FastAPI(dependencies=[Depends(verify_security_key)])
+app.add_middleware( # use the add_middleware() function to add the middleware
+    CORSMiddleware,
+    allow_origins=allowed_origins
+)
+
+It's also possible to declare the list as "*" (a "wildcard") to say that all are allowed.
+But that will only allow certain types of communication, excluding everything that involves credentials: Cookies, Authorization headers
+like those used with Bearer Tokens, etc. So, for everything to work correctly, it's better to specify explicitly the allowed origins.
+
+
+The default parameters used by the CORSMiddleware implementation are restrictive by default, so you'll need to explicitly
+enable particular origins, methods, or headers, in order for browsers to be permitted to use them in a Cross-Domain context.
+
+Example CORS settings:
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+BIGGER APPLICATION (MULTIPLE FILES, GROUPING ROUTES)
+
+Man, just check the app package of this project. It has all the info you need :)
+
+.
+├── app
+│   ├── __init__.py
+│   ├── main.py
+│   ├── dependencies.py
+│   └── routers
+│   │   ├── __init__.py
+│   │   ├── items.py
+│   │   └── users.py
+
+
+
+BACKGROUND TASKS
+
+You can schedule background tasks that are not very pertinent to the completion of a request to be done after the response has been sent
+back to the client. For example, if a user signed up and you want to send them a verification email afterwards, you don't have to send
+the email before the request completes because it could take time hence delaying the response and affecting user experience.
+
+If you add a task to the background tasks queue, it will be scheduled by FastAPI and executed after the response has been sent
+to the client. The response will just be sent right away without waiting for the task to finish.
+
+How to: Use BackgroundTasks from fastapi
+
+    from fastapi import BackgroundTasks
+    import time
+
+    async def verify_user(user: User):      # example of a task, in this case simulation of sending an email
+        print(f"Sending verification email to {user.user_name}'s email: {user.email}")
+        time.sleep(12)  # simulate a delay
+        print("Verified user:", user)
+
+
+    @router.post('/', response_model_include={'id'})
+    def add_user(user: User, jobs: BackgroundTasks) -> User:    # include BackgroundTasks as a parameter in your path operation function
+        user.id = round(time.time())                            # and FastAPI will take care of it
+        user_db[user.id] = user
+
+        jobs.add_task(verify_user, user)    # use the add_task function of BackgroundTasks to add a callable (function in this case)
+                                            # that will be executed. the arguments that follow are parameters that are to be passed
+                                            # to the callable while calling it.
+        return user
