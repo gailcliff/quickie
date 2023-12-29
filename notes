@@ -5,13 +5,16 @@ Installing fastapi and uvicorn
 
 TYPES
 **Type Hints**
+
+And adding type hints normally doesn't change what happens from what would happen without them.
+
 1. Primitive data types
 Example:
 def foo(bar: int):...
 def baz(chaz: str):...
 def faz(lar: float):...
 
-2. Generic data types - Use square brackets to declare the data types of the internal data
+2. Generic data types (i.e types that have internal types) - Use square brackets to declare the data types of the internal data
 List
     def foo(bar: list[int]):...
     def foo(bar: list[str]):...
@@ -20,16 +23,17 @@ Tuple
     def foo(bar: tuple[float]):...
 Tuple with a specific number of items, e.g 3 items
     def bar(maz: tuple[int, str, float]):... - this function expects a tuple with three items that are int, str and float respectively
-Tuples with variable number of items
-    # For tuples of variable size, we use one type and ellipsis to indicate that any other types are allowed after the ones specified explicitly
-    x: tuple[int, ...] = (1, 2, 3, 4)  # Python 3.9+
+Tuple with some specified types, and some with any data type
+    # For tuples of variable size, we use one type and ellipsis to indicate that any other type is allowed where the ellipsis has been applied
+    x: tuple[int, ...] = (1, False) or (34, "foo") or (821, 65.33)  # Python 3.9+
 
 Dictionary
     def maz(lar: dict[str, list[int]]):... - Use square brackets with two items: first is type for key, second is type for value
 
 In a nutshell, generic types are: list, tuple, set, dict, Union, Optional, and others.
 | (vertical bar) is a lot better and simpler than Union and Optional
-Optional is short hand for Union[<type>, None]. Optional actually returns a Union in the background
+Optional is short hand for Union[<type>, None]. Optional actually returns a Union in the background. However, better syntactically to use
+Union than Optional if one of the data types is None
 
 
 

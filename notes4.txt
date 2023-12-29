@@ -1,0 +1,38 @@
+*** ASYNC-AWAIT ***
+
+If you are using third party libraries that tell you to call them with await, like:
+
+
+results = await some_library()
+Then, declare your path operation functions with async def like:
+
+
+@app.get('/')
+async def read_results():
+    results = await some_library()
+    return results
+
+Note:
+    You can only use await inside of functions created with async def.
+
+If you are using a third party library that communicates with something (a database, an API, the file system, etc.) and doesn't have
+support for using await, (this is currently the case for most database libraries), then declare your path operation functions as
+normally, with just def, like:
+
+    @app.get('/')
+    def results():
+        results = some_library()
+        return results
+
+If your application (somehow) doesn't have to communicate with anything else and wait for it to respond, use async def.
+
+If you just don't know, use normal def.
+
+When you declare a path operation function with normal def instead of async def, it is run in an external threadpool that is
+then awaited, instead of being called directly (as it would block the server).
+
+If you are coming from another async framework that does not work in the way described above and you are used to defining
+trivial compute-only path operation functions with plain def for a tiny performance gain (about 100 nanoseconds), please
+note that in FastAPI the effect would be quite opposite. In these cases, it's better to use async def unless your path
+operation functions use code that performs blocking I/O.
+
