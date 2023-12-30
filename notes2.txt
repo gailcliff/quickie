@@ -97,6 +97,7 @@ async def read_file(file_path: str):
     return {"file_path": file_path}
 
 In this case, the name of the parameter is file_path, and the last part, :path, tells it that the parameter should match any path.
+    e.g "/path/to/resource"
 
 
 
@@ -121,8 +122,9 @@ or the:
 as it will use that None as the default value, and that way make the parameter not required.
 
 The rest is just type hints, but it is not what tells FastAPI that this parameter is not required. Having a default value of any type,
-including None, makes the parameter optional (not required). When you're writing code with type hints, assume it doesn't have type hints and
-see if the way you wrote it would actually work. Type hints are just annotations, they don't have much effect on execution.
+including None, makes the parameter optional (not required) because if it is not supplied, the default value will be used instead.
+When you're writing code with type hints, assume it doesn't have type hints and see if the way you wrote it would actually work.
+Type hints are just annotations, they don't have much effect on execution.
 
 To make a parameter required, you can:
     - simply just not provide a default value
@@ -156,10 +158,48 @@ FastAPI will recognize the parameters in the function correctly as follows:
     - If the parameter is of a singular type (like int, float, str, bool, etc) it will be interpreted as a query parameter (not defined in path).
     - If the parameter is declared to be of the type of a Pydantic model, it will be interpreted as a request body.
 
+How to provide default value for the fields of a pydantic model from value returned from a function
+class Recruit(BaseModel):
+    name: str
+    total_comp: int = 0
+    start_date: datetime | None = datetime.now()
+If you do the above, the 'start_date' will be the same for all instances of Recruit. datetime.now() is only called once when the first instance
+is instantiated, and then that value is used across all instances. This is because setting:
+    start_date = datetime.now() # let's ignore the annotation
+makes start_date a class variable and not an instance variable.
+
+To mitigate this, Pydantic comes in handy.
+    from pydantic import Field
+    class Recruit(BaseModel):
+        name: str
+        total_comp: int = 0
+        start_date: datetime | None = Field(default_factory=datetime.now)
+
+    Use the 'Field' property from pydantic and supply to it the function that you want it to call through the 'default_factory' parameter
+    (without the parentheses of course). When the pydantic model is instantiated, the default value of star_date will be the correct current
+    date and time.
+
 
 
 *** QUERY PARAMETERS AND STRING VALIDATIONS ***
 Annotated comes in handy (*remember?*)
+
+Side note: Advantages of Annotated
+        Using Annotated is recommended instead of the default value in function parameters, it is better for multiple reasons. 🤓
+
+        The default value of the function parameter is the actual default value, that's more intuitive with Python in general. 😌
+
+        You could call that same function in other places without FastAPI, and it would work as expected. If there's a required
+        parameter (without a default value), your editor will let you know with an error, Python will also complain if you run
+        it without passing the required parameter.
+
+        When you don't use Annotated and instead use the (old) default value style, if you call that function without FastAPI
+        in other place, you have to remember to pass the arguments to the function for it to work correctly, otherwise the values
+        will be different from what you expect (e.g. QueryInfo or something similar instead of str). And your editor won't complain,
+        and Python won't complain running that function, only when the operations inside error out.
+
+
+Because Annotated can have more than one metadata annotation, you could now even use the same function with other tools, like
 We use Annotated (from typing) and Query (from fastapi). Query, meaning we're working with query parameters (coming after ?)
 Annotated is used for providing metadata to our fastapi schemas, for uses such as extra data validation like this scenario where
 we're adding extra validations for input data.
@@ -245,6 +285,7 @@ Use this:
 *** PATH PARAMETERS AND VALIDATIONS ***
 Path parameters are the part of the URL that come before after the host name and before the query (?) parameters.
 Validations and metadata for path parameters are done the same as above for query parameters, only that we use the Path function and not Query
+    from fastapi import Path
 
 Query, Path, and other classes are subclasses of a common Param class. ALL of them SHARE THE SAME PARAMETERS for
 additional validation and metadata you have seen.
@@ -252,7 +293,7 @@ additional validation and metadata you have seen.
 Example path metadata:
     @app.get('/users/age/{age}')
     def get_users_by_age(age: Annotated[int, Path(description="Get users whose age is the one specified", ge=6, le=100)]):
-age will be required to be an integer that is greater than 6 and less than or equal to 100. An error will be returned as response if this requirement
+'age' will be required to be an integer that is greater than 6 and less than or equal to 100. An error will be returned as response if this requirement
 is not met. A description is also provided as metadata.
 
 
@@ -325,6 +366,7 @@ Use Field from pydantic
 The same way you can declare additional validation and metadata in path operation function parameters with Query, Path and Body,
 you can declare validation and metadata inside of Pydantic models using Pydantic's Field.
 Note that Field is imported directly from pydantic, not from fastapi as are all the rest (Query, Path, Body, etc). Import is: from pydantic import Field
+Field works the same way as Query, Path and Body, it has all the same parameters, etc.
 
 Import Field and use it with your model attributes.
 E.g:
@@ -375,9 +417,17 @@ Use Annotated and Cookie
 
 from fastapi import Cookie
 
-@app.get("/items/")
+@app.get("/items")
 async def read_items(ads_id: Annotated[str | None, Cookie()] = None): # this will read the cookie using the key 'ads_id' from the request
     return {"ads_id": ads_id}
+
+HTTP request:
+    GET http://127.0.0.1:8000/items
+    Accept: application/json
+    Content-Type: application/json
+    Cookie: user-name=uzr; pwd=1234; ads_id=82efad4
+
+    "foo bar"
 
 
 
@@ -406,9 +456,25 @@ def get_headers(
         "cookie": cookie
     }
 
+GETTING LIST OF VALUES FROM A HEADER (duplicate headers)
+    @app.get('/cookies')
+    def get_cookies(api_token: Annotated[list[str], Header()]):
+        return {
+            "tokens": api_token
+        }
+
+    Get request:
+        GET http://127.0.0.1:8000/cookies
+        Accept: application/json
+        Content-Type: application/json
+        Api-Token: abc123
+        Api-Token: def456
+        Api-Token: ghi789   # these duplicate headers will be interpreted as a list in the above handler
 
 
 RESPONSE MODEL
+You can declare the type used for the response by annotating the path operation function return type.
+
 There are some cases where you need or want to return some data that is not exactly what the type declares. For example, you could want to return a
 dictionary or a database object, but declare it as a Pydantic model. This way the Pydantic model would do all the data documentation, validation, etc.
 for the object that you returned (e.g. a dictionary or database object).
@@ -424,6 +490,16 @@ async def read_items() -> Any:
         {"name": "Portal Gun", "price": 42.0},
         {"name": "Plumbus", "price": 32.0},
     ]
+
+response_model PRIORITY
+If you declare both a return type and a response_model, the response_model will take priority and be used by FastAPI.
+This way you can add correct type annotations to your functions even when you are returning a type different than the
+response model, to be used by the editor and tools like mypy. And still you can have FastAPI do the data validation,
+documentation, etc. using the response_model.
+
+You can also use response_model=None to disable creating a response model for that path operation, you might need to do
+it if you are adding type annotations for things that are not valid Pydantic fields.
+
 
 
 *** response_model with Union of two types ***
@@ -471,19 +547,62 @@ class BaseUser(BaseModel):
     password: str
 
 Scenario, you are adding in a new user to your database but in the response, you only want to return the new user's created account id.
-Use response_model_include in the path spec.
 
-@app.post("/user/", response_model_include={'id'}) # response_model_include is a set of the keys in the pydantic model that you want included in the response
-async def create_user(user: BaseUser) -> BaseUser:
-    user.id = time.time()
-    return user
+OPTION 1:
+    Use response_model_include in the path spec.
 
-You can also exclude certain info using response_model_exclude
-@app.post("/user/", response_model_exclude={'password', 'email'}) # exclude the password from the response. response_model_exclude is a set of keys
-async def create_user(user: BaseUser) -> BaseUser:
-    user.id = time.time()
-    return user
+    @app.post("/user/", response_model_include={'id'}) # response_model_include is a set of the keys in the pydantic model that you want included in the response
+    async def create_user(user: BaseUser) -> BaseUser:
+        user.id = time.time()
+        return user
 
+OPTION 2:
+    You can also exclude certain info using response_model_exclude
+    @app.post("/user/", response_model_exclude={'password', 'email'}) # exclude the password from the response. response_model_exclude is a set of keys
+    async def create_user(user: BaseUser) -> BaseUser:
+        user.id = time.time()
+        return user
+
+OPTION 3:
+    Another option is to use another model that is a mirror copy of the original pydantic model but only contains the fields that you want to return
+    in the response; and then pass in that model as an argument to 'response_model' in the decorator function of your path operation function.
+
+    class BaseUserMinified(BaseModel): # this model contains the fields except id and password
+        username: str
+        email: str
+        full_name: str | None = None
+
+        @app.post("/user/", response_model=BaseUserMinified) # use the second model as the response model so that it returns only the desired fields in response
+        async def create_user(user: BaseUser) -> BaseUser:
+            user.id = time.time()
+            return user
+
+OPTION 4:
+    Use inheritance.
+    Create the basis pydantic model with the fields that you need in the output, and then another model that inherits from that basis
+    model (not BaseModel from pydantic) and includes other fields that you want to filter out of the output
+
+    class BaseUser(BaseModel):
+        username: str
+        email: str
+
+    class UserExtended(BaseUser):
+        id: int | None = None
+        full_name: str | None = None
+        password: str
+
+    @app.post("/user/")
+    async def create_user(user: UserExtended) -> BaseUser: # type in args and return type are different, but instances of UserExtended are also instances of BaseUser,
+                                                           # so we can return instance of UserExtended where BaseUser is defined as return type.
+                                                           # In this case, BaseUser will be used as the response model and will effectively filter out fields not defined
+                                                           # inside it from the output.
+        user.id = time.time()
+        return user     # this is an instance of UserExtended, but the output will contain only the fields defined in BaseUser
+                        # because BaseUser is used as the return type.
+
+OPTION 5:
+If you want to filter out default values (set by you the programmer in the model declaration) from your pydantic model in the response:
+    Use 'response_model_exclude_unset' to return only the values explicitly set. It is a boolean parameter
 
 
 DEALING WITH RESPONSES
@@ -506,6 +625,7 @@ You might also want to do something like redirect the user to another url and so
 
 
         If you're returning a pydantic model, you can also encode your model to json using jsonable_encoder from fastapi.encoders
+        jsonable_encoder returns the appropriate transformed object: it can a list or dict for instance.
 
         from fastapi.encoders import jsonable_encoder
 
@@ -561,6 +681,45 @@ You can either do it at the decorator level or in the function level when you're
         return "created"
 
 
+READING FORM DATA FROM HTML
+1. First, install python-multipart:
+    pip install python-multipart
+2. Create your HTML form:
+    <form action="/login" method="post">
+    <label for="username">Username:</label>
+    <input type="text" id="username" name="username" required>
+
+    <br>
+
+    <label for="password">Password:</label>
+    <input type="password" id="password" name="password" required>
+
+    <br>
+
+    <button type="submit">Submit</button>
+  </form>
+3. Form will send request to your server when user submits form.
+4. OK, here's what I wrote to get the log-in page and the server function to handle in:
+    @app.get('/team/log-in')
+    def get_login_page():
+        with open('page.html', 'r') as page:
+            return Response(page.read(), media_type='text/html')
+
+
+    @app.post('/login')
+    def log_in(username: Annotated[str, Form()], password: Annotated[str, Form()]):
+        print("password: ", password)
+        response = f"""
+            <html>
+            Welcome {username}!
+            <br>
+            You logged in successfully. <br>
+            Here's your secret key: {hash(password)}
+        </html>
+        """
+
+        return Response(content=response, media_type='text/html')
+
 
 THROWING AN ERROR
 Scenarios: invalid request, data not found, insufficient security clearance etc
@@ -572,13 +731,77 @@ from fastapi import HTTPException
 async def not_found():
     raise HTTPException(
         status_code=404 # status code can be anything depending on the kind of error you're throwing,
-        detail="not existing bud"
-        headers={}      # any headers you want to add to the error. headers is a dictionary
+        detail="not existing bud" # this will be the content displayed to the user
+        headers={'foo': 'bar'}      # any headers you want to add to the error. headers is a dictionary
     )
 
+YOU CAN THROW A CUSTOM ERROR WITH CUSTOM RESPONSE FOR A STATUS CODE THAT OVERRIDES FastAPI's DEFAULT RESPONSE FOR THAT
+STATUS CODE
+Steps:
+1. Create a custom exception
+    class NFException(Exception): # custom not found exception
 
-PATH OPERATION DOCSTRING
+        def __init__(self, search_term):
+            self.search_term = search_term
+
+2. Create a custom exception handler for that specific exception for when it's raised.
+Use the @app.exception_handler() decorator and pass in your exception class as argument.
+FastAPI will invoke this handler automatically when you raise the exception elsewhere in your code.
+When FastAPI invokes your handler function, it passes in two positional arguments:
+    - A Request (fastapi.Request) object - the request from the client
+        The Request object various information about the client, e.g host name, port, headers, cookies etc
+    - The instance of your custom exception that was raised (which contains its data, ofc)
+You can use those arguments above in your custom Response that you return to the client like below, and even
+include a status code and headers in your response.
+
+    @app.exception_handler(NFException)
+    def search(request: Request, exc: NFException):
+        content = """<html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>404 Not Found</title>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>404 Not Found</h1>
+                    <p>Sorry, no search results matching '{exc.search_term}' were found.</p>
+                    <p><a href="/team/log-in">Go back to the home page</a></p>
+                </div>
+            </body>
+            </html>"""
+        return Response(content, media_type='text/html', status_code=404)
+
+3. Raise the exception anywhere in your code to invoke your custom handler for that exception
+    @app.get('/search')
+    def search(query: str):
+        raise NFException(query)
+
+
+
+PATH OPERATION CONFIGS
+Docstring
 If you provide a docstring in any of your path operation functions, FastAPI will use that as a description in the OpenAPI documentations.
+
+Tags
+If you want to group your path operations with tags (at least in the OpenAPI docs - visually), add the parameter 'tags' to your
+decorator declaration and pass in a list[str] of tags as argument
+    @app.get('/team/log-in', tags=['team']) # add tags
+    def get_login_page():
+        pass
+
+    or use Enum for consistency
+
+    class Tags(Enum):
+        team = 'team'
+        marketing = 'marketing'
+
+    @app.get('/team/log-in', tags=[Tags.team]) # add tags
+    def get_login_page():
+        pass
+Other things you can add are 'summary', 'description' (can provide docstring in place of description), 'deprecated' (True or False) etc
+
+
 
 
 JSON COMPATIBLE ENCODER

@@ -60,6 +60,20 @@ def get_person_name(one_person: Person): # means one_person is an instance of Pe
     return one_person.name
 
 
+HOW TO ADD A TYPE ANNOTATION OF A CLASS WITHIN THE SAME CLASS
+In a method, for instance, within a class, it is impossible to set a type annotation that references the same class. The
+fix is so simple, just add single-quotes within the annotation for the class name like below:
+
+class Person:
+    def __init__(self, name: str):
+        self.name = name
+
+    def add_friend(self, friend: Person): # this doesn't work
+        pass
+
+    def add_friend(self, friend: 'Person'): # this works. just add the single-quotes around the class name
+        pass
+
 ** TYPE HINTS CHEAT SHEET **
 https://mypy.readthedocs.io/en/latest/cheat_sheet_py3.html
 
