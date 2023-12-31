@@ -436,6 +436,9 @@ Use Annotated and Header
 
 Headers usually have hyphens instead of underscore and FastAPI automatically does the conversion from hyphen to python-legal underscores for us.
 
+*** Have in mind that custom proprietary headers are added using the 'X-' prefix ***
+    e.g X-Security-Token
+
 @app.get('/headers')
 def get_headers(
         user_agent: Annotated[str | None, Header()] = None,     # looks for header with key 'user_agent' in the request headers
