@@ -1,0 +1,335 @@
+*** SECURITY ***
+
+USING OAuth2 TO AUTHENTICATE CLIENT WITH THE BACKEND
+
+OAuth 2 will use a username and password, send this to your backend so you can check if they're valid, and then you respond
+with a token that will then be used to authorize your path operations that require the token.
+
+First install python-multipart.
+    pip install python-multipart.
+This is because OAuth2 uses "form data" for sending the username and password.
+
+THE PASSWORD FLOW
+Now let's go back a bit and understand what is all that.
+The password "flow" is one of the ways ("flows") defined in OAuth2, to handle security and authentication.
+OAuth2 was designed so that the backend or API could be independent of the server that authenticates the user.
+However, we can still use the same FastAPI application to handle the API and the authentication.
+
+So, let's review it from that simplified point of view:
+
+1. The user types the username and password in the frontend, and hits Enter.
+2. The frontend (running in the user's browser) sends that username and password to a specific URL in our API (declared with tokenUrl="token" in the OAuth2PasswordBearer declaration).
+3. The API checks that username and password, and responds with a "token".
+    A "token" is just a string with some content that we can use later to verify this user.
+    Normally, a token is set to expire after some time.
+    So, the user will have to log in again at some point later.
+    And if the token is stolen, the risk is less. It is not like a permanent key that will work forever (in most of the cases).
+4. The frontend stores that token temporarily somewhere.
+5. The user clicks in the frontend to go to another section of the frontend web app.
+6. The frontend needs to fetch some more data from the API.
+    But it needs authentication for that specific endpoint.
+7. So, to authenticate with our API, it sends a header Authorization with a value of Bearer plus the token.
+    If the token contains 'foobar', the content of the Authorization header would be: 'Bearer foobar'.
+
+
+A "bearer" token is not the only option, but it might be the best for most use cases, unless you are an OAuth2 expert and
+know exactly why there's another option that suits better your needs.
+
+
+PRACTICAL EXPLANATION OF HOW IT WORKS
+When we create an instance of the OAuth2PasswordBearer class we pass in the 'tokenUrl' parameter. This parameter contains
+the URL that the client (the frontend running in the user's browser) will use to send the username and password in order to get a token.
+
+    from typing import Annotated
+
+    from fastapi import Depends, FastAPI
+    from fastapi.security import OAuth2PasswordBearer
+
+    app = FastAPI()
+
+    oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # tokenUrl points to the url that will authorize the user and provide a token.
+                                                           # this url can be relative url to a path operation within your FastAPI server where
+                                                           # the username and password will be processed to return a token.
+                                                           # Using a relative URL is IMPORTANT to make sure your application keeps working even
+                                                           # in an advanced use case.
+
+    @app.get("/items/")
+    async def read_items(token: Annotated[str, Depends(oauth2_scheme)]):
+        return {"token": token}
+
+* Explanation *
+So the client will provide their username and password.
+They are passed to the OAuth2PasswordBearer dependency, and then it sends a POST request to your 'tokenUrl' so that it can return a token, or reject
+the user if their username/password is invalid.
+After the POST request, a token is returned and this is injected into the 'token' parameter in the read_items function above (in this case).
+You then respond back to the client with the token so that they can use it for subsequent interactions with the server. You can set the token to expire
+after a period of time after which a new one will have to be generated.
+
+
+* How FastAPI checks if request is authorized *
+It will go and look in the request for that Authorization header, check if the value is Bearer plus some token,
+and will return the token as a str.
+
+If it doesn't see an Authorization header, or the value doesn't have a Bearer token, it will respond with a 401 status code
+error (UNAUTHORIZED) directly.
+
+You don't even have to check if the token exists to return an error. You can be sure that if your function is executed,
+it will have a str in that token.
+
+
+YOU CAN NEST MULTIPLE DEPENDENCIES BELOW THE OAuth DEPENDENCY
+E.g:
+    return a token from the OAuth dependency,
+    in turn, use the token to return the user from another dependency that fetches the User from the token.
+
+
+    oauth2 = OAuth2PasswordBearer(tokenUrl='url')
+
+    async def get_user_from_token(token: Annotated[str, Depends(oauth2)]) -> SecureRecruit:
+        return SecureRecruit(name='foo', email='ba@r.com', password=token)
+
+
+    @app.get('/user/{id}')
+    async def get_user(user_id: int, user: Annotated[SecureRecruit, Depends(get_user_from_token)]):
+        return {
+            "id": user_id,
+            "user": user
+        }
+    Above, we have a dependency for returning the token, and another one for generating the user
+
+
+** EPIPHANY **
+The process of generating an access token and the API request are two separate processes; they don't happen at the same time.
+The API request (if it's to be successful), requires a bearer access token as a pre-requisite. The process of generating
+an access token needs to have happened by the time to make the API request.
+
+The access token must be obtained before attempting to make an API request because the API server expects a valid token
+to be present in the request headers. If the token is missing, expired, or invalid, the API request may be rejected.
+
+To obtain an access token, send an API request with username and password (with content type as form) to your token endpoint.
+If the credentials are valid, return an access token in this very exact format:
+    {
+        "access_token": "<token here>" # you must use access_token as the key to the token value
+        "token_type": "bearer"  # you must pass in bearer as the value to the token_type key. these are OAuth2 required standards.
+    }
+
+After obtaining the access token, now you can use it in subsequent API requests, with the token in the header like so:
+    Authorization: Bearer <access_token>
+as long as the token is valid.
+
+
+** WHOLE PROCESS **
+from fastapi.security import (
+    OAuth2PasswordBearer,   # this dependency injects the access token to our code (used in main api request)
+    OAuth2PasswordRequestForm   # this dependency injects the username and password (only used in the token generation process and not the main api request)
+)
+
+oauth2 = OAuth2PasswordBearer(tokenUrl='gen-token') # points to relative url for generating token. used by OpenAPI docs
+                                                    # to generate token before making api requests. in real life, you'll
+                                                    # have to generate token by yourself first before making api request.
+
+
+async def get_user_from_token(token: Annotated[str, Depends(oauth2)]) -> SecureRecruit: # depends on oauth2 to return access token
+    if token != 'adminstrong123':
+        # *** just because an access token was found in the request doesn't mean that the token is valid.
+        # you have to check that the token is valid, otherwise return a http error 401 (unauthorized)
+        raise HTTPException(
+            status_code=401,
+            detail="invalid access token. nice try",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+        # if the user didn't provide an access token or provided an invalid one, when you return a http 401 error,
+        # according to standards, you have to put the header 'WWW-Authenticate: Bearer' in the response as shown above.
+    return SecureRecruit(name='foo', email='ba@r.com', password=token)
+
+
+@app.post('/gen-token')     # make sure token generation path operation is a post request
+def get_access_token(credentials: Annotated[OAuth2PasswordRequestForm, Depends()]):
+    username = credentials.username
+    pwd = credentials.password
+
+    if username != 'admin':
+        raise HTTPException(status_code=401, detail="invalid username: you can't hang here")
+    if pwd != 'strong123':
+        raise HTTPException(status_code=401, detail="please check your password and try again :/")
+
+    return {
+        "access_token": username + pwd,
+        "token_type": "bearer"
+    }
+
+
+@app.get('/user/{user_id}')
+async def get_user(user_id: int, user: Annotated[SecureRecruit, Depends(get_user_from_token)]):
+    # this path operation depends on 'get_user_from_token' to return a valid user, which in turn depends on oauth2
+    # to return a valid access token
+    return {
+        "id": user_id,
+        "user": user
+    }
+
+
+
+*** JSON WEB TOKEN (JWT) ***
+JWT means "JSON Web Tokens".
+
+It's a standard to codify a JSON object in a long dense string without spaces. It looks like this:
+    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+
+It is not encrypted, so, anyone could recover the information from the contents.
+But it's signed. So, when you receive a token that you emitted, you can verify that you actually emitted it.
+That way, you can create a token with an expiration of, let's say, 1 week. And then when the user comes back the next day with the token,
+you know that user is still logged in to your system.
+
+
+First, install a package used to generate and verify JWT's in python:
+    pip install "python-jose[cryptography]"
+
+
+Next, we have to do some hashing (for passwords in this case). We need a hashing library.
+
+PASSWORD HASHING
+"Hashing" means converting some content (a password in this case) into a sequence of bytes (just a string) that looks like gibberish.
+Whenever you pass exactly the same content (exactly the same password) you get exactly the same gibberish.
+But you CANNOT CONVERT FROM THE GIBBERISH BACK TO THE PASSWORD. Hashing is a one-way process.
+
+Why use password hashing? If your database is stolen, the thief won't have your users' plaintext passwords, only the hashes.
+So, the thief won't be able to try to use that password in another system (as many users use the same password everywhere, this would be dangerous).
+
+Install a library for hashing: passlib
+    PassLib is a great Python package to handle password hashes.
+
+    It supports many secure hashing algorithms and utilities to work with them.
+
+    ** The RECOMMENDED ALGORITHM is "Bcrypt". So, install PassLib with Bcrypt:
+
+    pip install "passlib[brcypt]"
+
+** Hash and verify the passwords **
+Import the tools we need from passlib.
+Create a PassLib "context". This is what will be used to hash and verify passwords.
+
+    from passlib.context import CryptContext
+
+    pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+
+
+    CryptContext is a helper for HASHING & VERIFYING passwords using multiple algorithms.
+
+    Instances of CryptContext allow applications to choose a specific set of hash algorithms which they wish to support,
+    set limits and defaults for the rounds and salt sizes those algorithms should use, flag which algorithms should be deprecated,
+    and automatically handle migrating users to stronger hashes when they log in.
+
+    CryptContext provides two very important functions
+    - hash() for hashing a password coming from the user.
+    - verify() for verifying if a received password matches the hash stored.
+
+    How to hash and how to verify a password:
+    pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+    hashed = pwd_context.hash(pwd) # pwd is the raw password string
+    # now verify the hashed password against the raw password (e.g if a user is logging in they pass in a raw password).
+    # you compare that against the hashed one stored in your db
+    password_valid = pwd_context.verify(plain, hashed) # returns either True or False. 1st arg is raw password, 2nd one is hashed
+
+
+SIMPLE COMPLETE EXAMPLE OF USING PASSLIB AND OAUTH TO AUTHENTICATE THE USER FOR A JOURNAL APP
+The journal contents have to be kept secret and only accessible by the user who created them.
+Here's a simple implementation I (Cliff) wrote to maintain privacy. One authenticated user cannot access
+another user's journals either.
+
+    app = FastAPI()
+    pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+    oauth2 = OAuth2PasswordBearer('access-token')
+
+
+    class Journal(BaseModel):
+        username: str
+        password: str   # hashed password. don't store raw passwords
+        secrets: str
+        __journals__: list['Journal'] = []
+
+        @classmethod
+        def add_to_db(cls, journal: 'Journal'):
+            # adds journal to database
+            journal.password = pwd_context.hash(journal.password)
+            print("Added new journal to db:", journal)
+            cls.__journals__.append(journal)
+
+        @classmethod
+        def all(cls):
+            return cls.__journals__
+
+        @classmethod
+        def get_user(cls, username: str) -> Union['Journal', None]:
+            for journal in cls.__journals__:
+                if journal.username == username:
+                    return journal
+            return None
+
+        def get_hash_salt(self):
+            # this method returns content that will be used to generate the access token.
+            # the access token will basically be a hash of this
+            return self.username + "." + self.password
+
+
+    @app.post('/journal', response_model_include={'username'})
+    def add_journal(journal: Journal) -> Journal:
+        # we don't need an access token for this operation because it is the entry point of the Journal, we're
+        # not authorizing anything at this point.
+        Journal.add_to_db(journal)
+        return journal
+
+
+    @app.post('/access-token')
+    def get_access_token(creds: Annotated[OAuth2PasswordRequestForm, Depends()]):
+        """
+        For a client to access any of the protected path operations, they need an access token, which is generated
+        from their username and password.
+        First, the code checks whether the username exists in the database. If not, a 404 exception is thrown.
+        Next, the client's password is verified against the hashed password stored in the db, if the journal exists.
+        If not verified, a 401 unauthorized error is thrown.
+
+        Else, return the access token by hashing the combo of username and password (get_hash_salt())
+        :param creds: username and password
+        :return: access token
+        """
+        username = creds.username
+        password = creds.password
+
+        journal = Journal.get_user(username)
+        if not journal:
+            raise HTTPException(status_code=404, detail="You don't exist")
+        if not pwd_context.verify(password, journal.password):
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        return {
+            "access_token": pwd_context.hash(journal.get_hash_salt()),
+            "token_type": "bearer"
+        }
+
+
+    @app.get('/journal/{username}', response_model_exclude={'password'})
+    def get_journal(username: str, token: Annotated[str, Depends(oauth2)]) -> Journal:
+        """
+        This path op needs an access token.
+        To access the journal, the user passes in their username. By this point, they already have the access token,
+        which is their hashed-together username and password.
+        Code checks if that username exists, if not it throws 404 error.
+        Next, code verifies the access token. The raw version is just "username + . + hashed password". This is obtained from
+        the Journal object. The raw is checked against the access token and if it's valid, it becomes verified.
+        If the token doesn't exist or is unverified, throw 401 Unauthorized error.
+        :param username: the user's name for the journal
+        :param token: the access token
+        :return:
+        """
+        journal = Journal.get_user(username)
+
+        if not journal:
+            raise HTTPException(status_code=404, detail="You don't exist")
+
+        print("tok", token)
+        print("salt", journal.get_hash_salt())
+        if not token or not pwd_context.verify(journal.get_hash_salt(), token):
+            raise HTTPException(status_code=401, headers={'WWW-Authenticate': 'Bearer'})
+
+        return journal
