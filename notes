@@ -2,6 +2,21 @@ Installing fastapi and uvicorn
     pip install fastapi
     pip install "uvicorn[standard]"
 
+Running app on terminal:
+    uvicorn <python_file_name>:<variable_for_fastapi_instance> --reload
+    e.g uvicorn main:app --reload (the --reload is an optional parameter)
+
+Running app and making it accessible not only on your local machine but your local network too:
+    uvicorn main:app --reload --host <your_local_ip> --port <port_number>
+    uvicorn main:app --reload --host <your_local_ip> --port <port_number>
+
+Running app with multiple processes: user the --workers parameter
+        uvicorn main:app --workers 4
+    Specify the number of processes you want as shown above. The processes each run independently and each use their own
+    memory. If you are loading some database records or a machine learning model, and you have multiple workers, it will
+    be launched separately for each worker (process). If you load an ML model that is 1GB, and you have 4 workers, the
+    amount of memory used will be 4GB.
+
 
 TYPES
 **Type Hints**
