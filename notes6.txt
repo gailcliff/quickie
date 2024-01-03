@@ -1,0 +1,180 @@
+*** DEPLOYMENT ***
+
+DOCKER CONTAINER
+When deploying FastAPI applications a common approach is to build a Linux container image. It's normally done using Docker.
+You can then deploy that container image in one of a few possible ways.
+
+What is a Container?
+    Containers (mainly Linux containers) are a very lightweight way to package applications including all their dependencies and
+    necessary files while keeping them isolated from other containers (other applications or components) in the same system.
+
+    Linux containers run using the same Linux kernel of the host (machine, virtual machine, cloud server, etc). This just means
+    that they are very lightweight (compared to full virtual machines emulating an entire operating system). This way, containers
+    consume little resources, an amount comparable to running the processes directly (a virtual machine would consume much more).
+
+    Containers also have their own isolated running processes (commonly just one process), file system, and network, simplifying
+    deployment, security, development, etc.
+
+What is a Container Image?
+    A container is run from a container image. A container image is a static version of all the files, environment variables,
+    and the default command/program that should be present in a container. Static here means that the container image is not running,
+    it's not being executed, it's only the packaged files and metadata.
+
+    In contrast to a "container image" that is the stored static contents, a "container" normally refers to the running instance,
+    the thing that is being executed. When the container is started and running (started from a container image) it could create
+    or change files, environment variables, etc. Those changes will EXIST ONLY IN THAT CONTAINER, but WOULD NOT PERSIST in the
+    underlying container image (WOULD NOT BE SAVED TO DISK).
+
+    A container image is comparable to the program file and contents, e.g. python and some file main.py.
+    And the container itself (in contrast to the container image) is the actual running instance of the image, comparable to a process.
+    In fact, a container is running only when it has a process running (and normally it's only a single process).
+    The container stops when there's no process running in it.
+
+
+Containers and Processes
+    A container image normally includes in its METADATA the default program or command that should be run when the container
+    is started and the PARAMETERS TO BE PASSED to that program. Very similar to what would be if it was in the command line.
+
+    When a container is started, it will run that command/program (although you can override it and make it run a different command/program).
+    A container is running as long as the main process (command or program) is running. A container normally has a single process, but it's
+    also possible to start subprocesses from the main process, and that way you will have multiple processes in the same container.
+
+    But it's not possible to have a running container without at least one running process. If the main process stops, the container stops.
+
+
+HOW TO DEPLOY YOUR FASTAPI APP USING DOCKER
+1. Download & install Docker, make sure it's running
+    On Mac:
+        just download docker from the official Docker website, and install it
+        then add docker to your path (to make the cli accessible within your local user - for system-wide, you'll need admin password):
+            add this to zshrc or bashrc to add to path: export PATH="$PATH:$HOME/.docker/bin"
+
+    On Linux (Ubuntu):
+        You'll need to execute a bunch of commands:
+        Create a bash file (e.g installs.sh)
+        Go to the docker website and get the commands for installing docker and add them to the bash file and then execute it.
+        That is easier than typing in the commands one by one.
+        You can edit the file using:
+            sudo vim <installs.sh>
+        Or use cat:
+            cat << EOF > file
+                command1
+                command2
+                command3
+            EOF
+        After adding the commands to the file, execute it using bash.
+            bash filename.sh
+
+        An example of such a file to install docker looks like this:
+            #!/bin/bash
+            sudo apt-get update
+            sudo apt-get install ca-certificates curl gnupg
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+            # Add the repository to Apt sources:
+            echo \
+              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            sudo apt-get update
+            sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+    To test if your installation worked, run:
+        sudo docker run hello-world
+
+    In Ubuntu, you have to start the docker service:
+        sudo service docker start
+    You might also want to make sure that the service restarts automatically when the system reboots or crashes.
+        https://www.digitalocean.com/community/tutorials/how-to-configure-a-linux-service-to-start-automatically-after-a-crash-or-reboot-part-1-practical-examples
+
+2. Create a docker image for your fastapi project
+Go into the parent directory of your project. You'll ideally have your apps code inside another directory (let's call it 'app')
+inside the parent directory.
+Create a docker file (the name is just Dockerfile without an extension) inside the parent directory.
+Write the following code
+    FROM python:3.11 # this will collect the python 3.11 image from the docker hub
+    WORKDIR /rekcod # the working directory to create for your project inside the docker image
+    COPY ./requirements.txt /rekcod/requirements.txt    # you will have requirements file inside the parent directory of your project. copy
+                                                        # this file to the working directory
+    RUN pip install --no-cache-dir -r /rekcod/requirements.txt  # this is the command that will install the packages defined in your requirements file
+    COPY ./app /rekcod/app  # now do this finally to copy your app's code to the working directory
+    ENV X_API_KEY 88829a93cdab6f6b44ff539f1ead287bcb93d663e31f0630fe5739c7d377d044  # this adds environment variables for your project, like an api key
+    ENV X_API_KEY_ALGO HS256    # this is also an environment variable to pass to the app. don't put secrets within your code.
+    CMD ["uvicorn", "app.oauth_passlib_advanced:app", "--host", "0.0.0.0", "--port", "80"]  # this is just like the terminal commands that you use to run
+                                                                                            # a FastAPI project in dev. this line is what will execute the FastAPI app
+                                                                                            # when you run the container
+
+There's an important trick in the above Dockerfile, we FIRST copy the file with the dependencies alone, NOT THE REST OF THE CODE FIRST
+    We do this: COPY ./requirements.txt /code/requirements.txt (and install the packages)
+    Before this: COPY ./app /rekcod/app  # now do this finally to copy your app's code to the working directory
+Why?
+    Docker and other tools build these container images incrementally, adding one layer on top of the other, starting from the
+    top of the Dockerfile and adding any files created by each of the instructions of the Dockerfile.
+    It is done layer after layer, and in a real life scenario, you probably install packages before using them to write code.
+
+3. Build the image
+Within the directory that contains the Dockerfile, run this command to build the image. The location where the image is stored is platform independent
+    docker build -t my_image .
+This builds an image and assigns it the name 'my_image'
+
+4. Now run the image
+    docker run -d --name my_container -p 8000:80
+The above command starts and runs a container with the name 'my_container'.
+The flag -d signifies that it runs in the background and not in the terminal instance. If you remove this flag it will only run in the current terminal instance and exit when you Ctrl+C.
+It maps the port 8000 of the host machine to the port 80 of the container.
+    E.g A user would not go to the link http:localhost:80 they would go to http://localhost:8000
+
+Now your container is up and running and ready to serve requests.
+
+HOW TO VIEW IMAGES THAT YOU HAVE BUILT
+    docker images
+
+HOW TO VIEW THE RUNNING CONTAINERS
+    docker ps
+    Running ps -a gives you more detail, including containers that you created but are not running
+
+HOW TO REMOVE A CONTAINER
+    docker rm container_name
+
+HOW TO REMOVE AN IMAGE
+    docker rmi image_name
+
+HOW TO FORCE REMOVE AN IMAGE
+    docker rmi -f image_name
+
+HOW TO STOP A CONTAINER
+    docker stop container_name
+
+HOW TO STOP ALL CONTAINERS
+    docker stop $(docker ps -a -q)
+
+
+RUNNING MULTIPLE PROCESSES
+    When working with Kubernetes or similar distributed container management systems, using their internal networking mechanisms
+    would allow the single load balancer that is listening on the main port to transmit communication (requests) to possibly multiple containers running your app.
+
+    Each of these containers running your app would normally have just one process (e.g. a Uvicorn process running your FastAPI application).
+    They would all be identical containers, running the same thing, but each with its own process, memory, etc. That way you would take
+    advantage of parallelization in different cores of the CPU, or even in different machines.
+
+    And the distributed container system with the load balancer would distribute the requests to each one of the containers
+    with your app in turns. So, each request could be handled by one of the multiple replicated containers running your app.
+
+    And normally this load balancer would be able to handle requests that go to other apps in your cluster (e.g. to a
+    different domain, or under a different URL path prefix), and would transmit that communication to the right containers for that other application running in your cluster.
+
+
+    * One Process per Container *
+    In this type of scenario, you probably would want to have a single (Uvicorn) process per container, as you would already
+    be handling replication at the cluster level.
+    So, in this case, you would not want to have a process manager like Gunicorn with Uvicorn workers, or Uvicorn using its own Uvicorn workers.
+    You would want to have just a single Uvicorn process per container (but probably multiple containers).
+    Having another process manager inside the container (as would be with Gunicorn or Uvicorn managing Uvicorn workers) would only add unnecessary
+    complexity that you are most probably already taking care of with your cluster system.
+
+
+
+
+

@@ -17,6 +17,40 @@ Running app with multiple processes: user the --workers parameter
     be launched separately for each worker (process). If you load an ML model that is 1GB, and you have 4 workers, the
     amount of memory used will be 4GB.
 
+How to generate requirements.txt
+    After installing packages using pip, you might need a list of those packages so that you can install them when
+    recreating the project. E.g if you clone a python git repository from github, you might need to install the packages
+    that it uses so that you can start running the code
+
+    Use the pip freeze command
+        pip freeze > requirements.txt
+
+Installing from requirements.txt
+    To work with the packages in requirements.txt, you have to install them. You can do this by using the command prompt or terminal.
+    Type this command:
+        pip install -r requirements.txt
+
+Install from pip requirements without using cached installed packages
+        pip install --no-cache-dir -r requirements.txt
+
+    The --no-cache-dir option in pip commands is used to disable the use of the cache directory for storing downloaded packages.
+    When this option is specified, pip will download and install packages without caching them in the cache directory. The
+    cache directory is typically located in the user's home directory under ~/.cache/pip.
+
+    When using --no-cache-dir, keep in mind that it might result in slower installation times because the package and its dependencies
+    need to be downloaded and installed each time without the benefit of caching.
+
+    Developers might choose to use --no-cache-dir in certain situations, such as when troubleshooting issues related to
+    cached packages or when they want to ensure they are always getting the latest version of a package during development or deployment.
+
+Upgrading already installed packages using pip
+    The --upgrade command in pip is used to upgrade an already installed Python package to the latest version available.
+    When you run pip install --upgrade, it ensures that the specified package is upgraded to the most recent version, fetching
+    it from the Python Package Index (PyPI) or another specified repository.
+
+        pip install --upgrade -r requirements.txt
+
+
 
 TYPES
 **Type Hints**
